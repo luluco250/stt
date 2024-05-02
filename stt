@@ -2,27 +2,64 @@
 
 cd "$(dirname "$(realpath "$0")")" || exit 1
 
+die() {
+	>&2 echo "$@"
+	exit 1
+}
+
+check_command() {
+	! type "$1" &>/dev/null && die "Missing $1"
+}
+
+check_command ffmpeg
+check_command whisper.cpp
+
+case "$(uname)" in
+	Linux*)
+		case "$XDG_SESSION_TYPE" in
+			x11)
+				check_command xclip
+				clipboard() {
+					xclip -clipboard "$1"
+				}
+				;;
+			wayland)
+				check_command wl-copy
+				clipboard() {
+					wl-copy -n <"$1"
+				}
+				;;
+		esac
+		;;
+	Darwin*)
+		check_command pbcopy
+		clipboard() {
+			pbcopy <"$1"
+		}
+		;;
+esac
+
 echo 'Press Q to stop recording.'
-if ! ffmpeg \
+! ffmpeg \
 	-hide_banner \
 	-f pulse \
 	-i @DEFAULT_SOURCE@ \
 	-ar 16000 \
 	-ac 1 \
 	-c:a pcm_s16le \
-	-y recording.wav; then
-	>&2 echo 'An error ocurred while recording, aborted.'
-	exit 1
-fi
+	-y recording.wav && \
+	die 'An error ocurred while recording, aborted.'
 
-if ! whisper.cpp \
+! whisper.cpp \
 	-m models/ggml-base.en.bin \
 	-f recording.wav \
 	--output-txt \
 	--output-file transcript \
-	--no-prints; then
-	>&2 echo 'An error ocurred while transcribing, aborted.'
-	exit 1
-fi
+	--no-prints && \
+	die 'An error ocurred while transcribing, aborted.'
 
-tee >(wl-copy) <transcript.txt
+# Fix some issue where whisper.cpp outputs lines with a leading space.
+sed -i 's/^\s//g' transcript.txt
+
+# Echo result while also copying it.
+tee >(wl-copy -n) <transcript.txt
