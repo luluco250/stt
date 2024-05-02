@@ -1,0 +1,28 @@
+#!/bin/bash
+
+cd "$(dirname "$(realpath "$0")")" || exit 1
+
+echo 'Press Q to stop recording.'
+if ! ffmpeg \
+	-hide_banner \
+	-f pulse \
+	-i @DEFAULT_SOURCE@ \
+	-ar 16000 \
+	-ac 1 \
+	-c:a pcm_s16le \
+	-y recording.wav; then
+	>&2 echo 'An error ocurred while recording, aborted.'
+	exit 1
+fi
+
+if ! whisper.cpp \
+	-m models/ggml-base.en.bin \
+	-f recording.wav \
+	--output-txt \
+	--output-file transcript \
+	--no-prints; then
+	>&2 echo 'An error ocurred while transcribing, aborted.'
+	exit 1
+fi
+
+tee >(wl-copy) <transcript.txt
